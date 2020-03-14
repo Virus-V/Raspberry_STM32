@@ -8,7 +8,7 @@ TARGET = led
 WORKSPACE = $(shell pwd)
 
 # 模块列表
-MODULE_LIST = CMSIS User
+MODULE_LIST = User STLibrary CMSIS
 
 MODULE_OBJ = $(foreach var,$(MODULE_LIST),$(var)/module.a)
 
@@ -18,6 +18,11 @@ LINKER_SCRIPT = $(WORKSPACE)/CMSIS/flash.ld
 # MCU架构和型号
 MCU      = cortex-m3
 SUBMDL   = stm32f103
+
+# 仿真器类型
+DBG_INTERFACE = stlink
+# 调试目标类型
+DBG_TARGET = stm32f1x
 
 # toolchain (using code sourcery now)
 CROSS_COMPILE = arm-none-eabi
@@ -53,21 +58,21 @@ include $(WORKSPACE)/scripts/variables.mk
 HEXSIZE = $(SIZE) --target=binary $(TARGET).hex
 ELFSIZE = $(SIZE) -A $(TARGET).elf
 
-.PHONY: all build_modules clean
+.PHONY: all build_modules download clean
 
-all: build 
+all: build sizeafter end
 
-build: build_modules elf bin lss sym sizeafter end
+build: elf bin lss sym 
 
 elf: $(TARGET).elf
 bin: $(TARGET).bin
 lss: $(TARGET).lss
 sym: $(TARGET).sym
 
-sizeafter:
+sizeafter: build
 	@if [ -f $(TARGET).elf ]; then echo "Size after"; $(ELFSIZE); fi
 
-end:
+end: sizeafter
 	@echo "Make Complete~"
 	@echo $(shell date)
 
@@ -91,20 +96,26 @@ end:
 
 # 构建elf
 %.elf: $(MODULE_OBJ)
-	$(CC) $(CFLAGS) $^ $(LDFLAGS) --output $@ 
+	$(CC) $(CFLAGS) -Wl,--undefine=main $^ $(LDFLAGS) --output $@ 
+
+$(MODULE_OBJ): build_modules
 
 # 构建子模块
 build_modules: 
 	@echo "Build modules..."
 	$(foreach var,$(MODULE_LIST),\
-		@echo "building $(var) module.."; \
+		echo "building $(var) module.."; \
 		$(MAKE) -C $(var);	\
 	)
 	@echo "Modules build finished..."
 
+download:
+	@echo "Downloading $(TARGET) ..."
+	@openocd -f interface/$(DBG_INTERFACE).cfg -f target/$(DBG_TARGET).cfg -c "program $(TARGET).elf verify reset exit"
+
 clean:
 	$(foreach var,$(MODULE_LIST),\
-		@echo "Clean $(var) module.."; \
+		echo "Clean $(var) module.."; \
 		$(MAKE) -C $(var) clean;	\
 	)
 	@$(REMOVE) $(TARGET).elf $(TARGET).bin $(TARGET).lss $(TARGET).sym $(TARGET).hex
